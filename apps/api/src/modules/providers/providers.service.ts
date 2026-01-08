@@ -4,13 +4,20 @@
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 
-interface Provider {
+export interface Provider {
   id: string;
   name: string;
   slug: string;
   type: 'transit' | 'micromobility' | 'taxi';
   primaryColor: string;
   isActive: boolean;
+}
+
+export interface ProviderHealth {
+  slug: string;
+  isHealthy: boolean;
+  lastCheck: Date;
+  latencyMs: number;
 }
 
 @Injectable()
@@ -79,12 +86,7 @@ export class ProvidersService {
     return provider;
   }
 
-  async getHealth(slug: string): Promise<{
-    slug: string;
-    isHealthy: boolean;
-    lastCheck: Date;
-    latencyMs: number;
-  }> {
+  async getHealth(slug: string): Promise<ProviderHealth> {
     // Placeholder - in real implementation this would check Redis cache
     await this.findBySlug(slug); // Verify provider exists
     

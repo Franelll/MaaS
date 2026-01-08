@@ -4,7 +4,7 @@
 
 import { Controller, Get, Param, Version } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { ProvidersService } from './providers.service';
+import { ProvidersService, Provider, ProviderHealth } from './providers.service';
 
 @ApiTags('providers')
 @Controller('providers')
@@ -15,7 +15,7 @@ export class ProvidersController {
   @Version('1')
   @ApiOperation({ summary: 'Get all mobility providers' })
   @ApiResponse({ status: 200, description: 'List of providers' })
-  async getAllProviders() {
+  async getAllProviders(): Promise<Provider[]> {
     return this.providersService.findAll();
   }
 
@@ -24,7 +24,7 @@ export class ProvidersController {
   @ApiOperation({ summary: 'Get provider by slug' })
   @ApiResponse({ status: 200, description: 'Provider details' })
   @ApiResponse({ status: 404, description: 'Provider not found' })
-  async getProvider(@Param('slug') slug: string) {
+  async getProvider(@Param('slug') slug: string): Promise<Provider> {
     return this.providersService.findBySlug(slug);
   }
 
@@ -32,7 +32,7 @@ export class ProvidersController {
   @Version('1')
   @ApiOperation({ summary: 'Get provider health status' })
   @ApiResponse({ status: 200, description: 'Provider health status' })
-  async getProviderHealth(@Param('slug') slug: string) {
+  async getProviderHealth(@Param('slug') slug: string): Promise<ProviderHealth> {
     return this.providersService.getHealth(slug);
   }
 }

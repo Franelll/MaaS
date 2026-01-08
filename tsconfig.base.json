@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "baseUrl": ".",
+    "paths": {
+      "@maas/common": ["libs/common/src"],
+      "@maas/common/*": ["libs/common/src/*"],
+      "@maas/gtfs": ["libs/gtfs/src"],
+      "@maas/gtfs/*": ["libs/gtfs/src/*"],
+      "@maas/gbfs": ["libs/gbfs/src"],
+      "@maas/gbfs/*": ["libs/gbfs/src/*"],
+      "@maas/taxi": ["libs/taxi/src"],
+      "@maas/taxi/*": ["libs/taxi/src/*"],
+      "@maas/geo": ["libs/geo/src"],
+      "@maas/geo/*": ["libs/geo/src/*"],
+      "@maas/cache": ["libs/cache/src"],
+      "@maas/cache/*": ["libs/cache/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
+}

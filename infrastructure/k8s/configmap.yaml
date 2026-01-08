@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maas-config
+  namespace: maas
+data:
+  # Application settings
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  
+  # Service ports
+  API_PORT: "3000"
+  REALTIME_PORT: "3001"
+  
+  # Polling intervals (milliseconds)
+  GBFS_POLLING_INTERVAL: "10000"
+  GTFS_RT_POLLING_INTERVAL: "5000"
+  
+  # Redis settings
+  REDIS_DB: "0"
+  REDIS_KEY_PREFIX: "maas:"
+  
+  # Cache TTL settings (seconds)
+  CACHE_TTL_VEHICLES: "15"
+  CACHE_TTL_STATIONS: "60"
+  CACHE_TTL_GTFS_STATIC: "86400"
+  CACHE_TTL_SESSION: "3600"
+  
+  # Spatial query defaults
+  DEFAULT_SEARCH_RADIUS_METERS: "500"
+  MAX_SEARCH_RADIUS_METERS: "5000"
+  
+  # Rate limiting
+  RATE_LIMIT_WINDOW_MS: "60000"
+  RATE_LIMIT_MAX_REQUESTS: "100"
+  
+  # CORS settings
+  CORS_ORIGIN: "*"
+  CORS_METHODS: "GET,POST,PUT,DELETE,OPTIONS"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maas-providers-config
+  namespace: maas
+data:
+  providers.json: |
+    {
+      "micromobility": {
+        "bolt": {
+          "enabled": true,
+          "gbfsFeedUrl": "https://mds.bolt.eu/gbfs/v2/{city}/free_bike_status",
+          "supportedCities": ["waw", "krk", "poz", "wro", "gda"],
+          "pollingInterval": 10000
+        },
+        "tier": {
+          "enabled": true,
+          "gbfsFeedUrl": "https://platform.tier-services.io/v2/gbfs/{city}/free_bike_status",
+          "supportedCities": ["warsaw", "krakow", "poznan"],
+          "pollingInterval": 10000
+        },
+        "dott": {
+          "enabled": true,
+          "gbfsFeedUrl": "https://gbfs.api.ridedott.com/public/v2/{city}/free_bike_status.json",
+          "supportedCities": ["warsaw"],
+          "pollingInterval": 10000
+        }
+      },
+      "transit": {
+        "ztmWarszawa": {
+          "enabled": true,
+          "gtfsFeedUrl": "https://www.ztm.waw.pl/google-transit/gtfs.zip",
+          "gtfsRealtimeUrl": "https://www.ztm.waw.pl/gtfsrt/",
+          "pollingInterval": 5000
+        }
+      },
+      "taxi": {
+        "bolt": {
+          "enabled": true,
+          "deepLinkScheme": "bolt://",
+          "webFallback": "https://bolt.eu"
+        },
+        "uber": {
+          "enabled": true,
+          "deepLinkScheme": "uber://",
+          "webFallback": "https://m.uber.com"
+        }
+      }
+    }

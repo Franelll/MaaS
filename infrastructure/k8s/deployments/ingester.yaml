@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maas-ingester
+  namespace: maas
+  labels:
+    app: maas-ingester
+    tier: worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: maas-ingester
+  template:
+    metadata:
+      labels:
+        app: maas-ingester
+        tier: worker
+    spec:
+      serviceAccountName: maas-service-account
+      containers:
+        - name: ingester
+          image: maas-platform/ingester:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: maas-config
+            - secretRef:
+                name: maas-secrets
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: REDIS_URL
+            # Worker configuration
+            - name: WORKER_TYPE
+              value: "all"  # Can be 'gbfs', 'gtfs-rt', 'taxi', or 'all'
+            - name: WORKER_CONCURRENCY
+              value: "5"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "node /app/healthcheck.js"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: providers-config
+              mountPath: /app/config
+              readOnly: true
+            - name: gtfs-data
+              mountPath: /app/data/gtfs
+      volumes:
+        - name: providers-config
+          configMap:
+            name: maas-providers-config
+        - name: gtfs-data
+          persistentVolumeClaim:
+            claimName: gtfs-data-pvc
+---
+# PersistentVolumeClaim for GTFS data storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gtfs-data-pvc
+  namespace: maas
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc  # Use EFS for multi-pod access
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: maas-ingester-hpa
+  namespace: maas
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: maas-ingester
+  minReplicas: 3
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maas-realtime
+  namespace: maas
+  labels:
+    app: maas-realtime
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: maas-realtime
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: maas-realtime
+        tier: backend
+    spec:
+      serviceAccountName: maas-service-account
+      containers:
+        - name: realtime
+          image: maas-platform/realtime:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3001
+              name: websocket
+          envFrom:
+            - configMapRef:
+                name: maas-config
+            - secretRef:
+                name: maas-secrets
+          env:
+            - name: PORT
+              value: "3001"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: REDIS_URL
+            # Socket.IO adapter for Redis (multi-pod support)
+            - name: SOCKET_IO_ADAPTER
+              value: "redis"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: maas-realtime
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maas-realtime
+  namespace: maas
+  labels:
+    app: maas-realtime
+  annotations:
+    # Enable sticky sessions for WebSocket
+    service.kubernetes.io/topology-mode: Auto
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
+  ports:
+    - port: 80
+      targetPort: 3001
+      protocol: TCP
+      name: websocket
+  selector:
+    app: maas-realtime
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: maas-realtime-hpa
+  namespace: maas
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: maas-realtime
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70

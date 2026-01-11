@@ -1,0 +1,28 @@
+{
+  "osm": [
+    {
+      "source": "mazowieckie-latest.osm.pbf",
+      "osmTagMapping": "default",
+      "timeZone": "Europe/Warsaw"
+    }
+  ],
+  "transitFeeds": [
+    {
+      "type": "gtfs",
+      "source": "gtfs-warsaw.zip",
+      "feedId": "ztm-warsaw"
+    }
+  ],
+  "areaVisibility": true,
+  "platformEntriesLinking": true,
+  "parentStopLinking": true,
+  "transitServiceStart": "-P6M",
+  "transitServiceEnd": "P1Y",
+  "maxTransferDuration": "30m",
+  "transferRequests": [
+    {
+      "modes": "WALK"
+    }
+  ],
+  "buildReportDir": "/opt/otp/data/report"
+}

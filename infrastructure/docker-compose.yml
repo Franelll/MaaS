@@ -1,11 +1,11 @@
-version: '3.8'
 
 services:
   # ============================================================================
   # PostgreSQL + PostGIS + TimescaleDB
   # ============================================================================
   postgres:
-    image: timescale/timescaledb-ha:pg16-latest
+    # Używamy standardowego obrazu TimescaleDB (stabilniejszy niż HA dla dev)
+    image: timescale/timescaledb:latest-pg15
     container_name: maas-postgres
     restart: unless-stopped
     environment:
@@ -13,7 +13,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maas_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-maas_db}
     volumes:
-      - postgres_data:/home/postgres/pgdata/data
+      # Standardowa ścieżka dla obrazu postgres/timescaledb
+      - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     ports:
       - "5432:5432"
@@ -68,7 +69,7 @@ services:
   # ============================================================================
   api:
     build:
-      context: .
+      context: ..
       dockerfile: apps/api/Dockerfile
       target: development
     container_name: maas-api
@@ -80,8 +81,8 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production}
     volumes:
-      - ./apps/api/src:/app/apps/api/src:ro
-      - ./libs:/app/libs:ro
+      - ../apps/api/src:/app/apps/api/src:ro
+      - ../libs:/app/libs:ro
     ports:
       - "3000:3000"
     depends_on:
@@ -102,7 +103,7 @@ services:
   # ============================================================================
   realtime:
     build:
-      context: .
+      context: ..
       dockerfile: apps/realtime/Dockerfile
       target: development
     container_name: maas-realtime
@@ -113,8 +114,8 @@ services:
       REDIS_URL: redis://redis:6379
       DATABASE_URL: postgres://${POSTGRES_USER:-maas}:${POSTGRES_PASSWORD:-maas_dev_password}@postgres:5432/${POSTGRES_DB:-maas_db}
     volumes:
-      - ./apps/realtime/src:/app/apps/realtime/src:ro
-      - ./libs:/app/libs:ro
+      - ../apps/realtime/src:/app/apps/realtime/src:ro
+      - ../libs:/app/libs:ro
     ports:
       - "3001:3001"
     depends_on:
@@ -126,30 +127,30 @@ services:
   # ============================================================================
   # Data Ingestion Service
   # ============================================================================
-  ingester:
-    build:
-      context: .
-      dockerfile: apps/ingester/Dockerfile
-      target: development
-    container_name: maas-ingester
-    restart: unless-stopped
-    environment:
-      NODE_ENV: development
-      DATABASE_URL: postgres://${POSTGRES_USER:-maas}:${POSTGRES_PASSWORD:-maas_dev_password}@postgres:5432/${POSTGRES_DB:-maas_db}
-      REDIS_URL: redis://redis:6379
-      GBFS_POLLING_INTERVAL: 10000
-      GTFS_RT_POLLING_INTERVAL: 5000
-    volumes:
-      - ./apps/ingester/src:/app/apps/ingester/src:ro
-      - ./libs:/app/libs:ro
-      - gtfs_data:/app/data/gtfs
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - maas-network
+  #ingester:
+  #  build:
+  #    context: ..
+  #    dockerfile: apps/ingester/Dockerfile
+  #    target: development
+  #  container_name: maas-ingester
+  #  restart: unless-stopped
+  #  environment:
+  #    NODE_ENV: development
+  #    DATABASE_URL: postgres://${POSTGRES_USER:-maas}:${POSTGRES_PASSWORD:-maas_dev_password}@postgres:5432/${POSTGRES_DB:-maas_db}
+  #    REDIS_URL: redis://redis:6379
+  #    GBFS_POLLING_INTERVAL: 10000
+  #    GTFS_RT_POLLING_INTERVAL: 5000
+  #  volumes:
+  #    - ../apps/ingester/src:/app/apps/ingester/src:ro
+  #    - ../libs:/app/libs:ro
+  #    - gtfs_data:/app/data/gtfs
+  #  depends_on:
+  #    postgres:
+  #      condition: service_healthy
+  #    redis:
+  #      condition: service_healthy
+  #  networks:
+  #    - maas-network
 
   # ============================================================================
   # pgAdmin (Database Management UI)
@@ -194,6 +195,83 @@ services:
     profiles:
       - production
 
+  # ============================================================================
+  # OpenTripPlanner v2.5 - Graph Builder (Run once to build graph)
+  # ============================================================================
+  otp-builder:
+    build:
+      context: ./otp
+      dockerfile: Dockerfile
+      target: builder
+    container_name: maas-otp-builder
+    volumes:
+      - ./otp/data:/opt/otp/data
+      - ./otp/build-config.json:/opt/otp/data/build-config.json:ro
+    command: ["java", "-Xmx6G", "-Xms2G", "-jar", "/opt/otp/otp.jar", "--build", "--save", "/opt/otp/data"]
+    networks:
+      - maas-network
+    profiles:
+      - build-graph
+
+  # ============================================================================
+  # OpenTripPlanner v2.5 - Routing Server
+  # ============================================================================
+  otp:
+    build:
+      context: ./otp
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: maas-otp
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xmx4G -Xms1G -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+      OTP_DATA_DIR: "/opt/otp/data"
+    volumes:
+      - ./otp/data:/opt/otp/data:ro
+    ports:
+      - "8090:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/otp/actuators/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 3
+    networks:
+      - maas-network
+    profiles:
+      - routing
+
+  # ============================================================================
+  # OTP with full stack (API + OTP together)
+  # ============================================================================
+  otp-full:
+    build:
+      context: ./otp
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: maas-otp-full
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xmx4G -Xms1G -XX:+UseG1GC"
+      OTP_DATA_DIR: "/opt/otp/data"
+    volumes:
+      - ./otp/data:/opt/otp/data:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/otp/actuators/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 3
+    networks:
+      - maas-network
+
 # ============================================================================
 # Networks
 # ============================================================================
@@ -215,4 +293,6 @@ volumes:
   pgadmin_data:
     driver: local
   gtfs_data:
+    driver: local
+  otp_data:
     driver: local

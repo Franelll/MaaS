@@ -19,11 +19,17 @@ async function bootstrap() {
   app.use(helmet());
   app.use(compression());
 
-  // CORS
+  // CORS - Allow Flutter Web (localhost:8080)
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: [
+      'http://localhost:8080',
+      'http://localhost:3000',
+      'http://127.0.0.1:8080',
+      ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : []),
+    ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
 
   // API Versioning

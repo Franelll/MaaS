@@ -3,31 +3,46 @@
 // Business logic for map queries
 // ============================================================================
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { 
   NearbySearchDto, 
   BoundingBoxSearchDto, 
   MapResponseDto,
   DeepLinkResponseDto,
 } from './dto/map.dto';
+import { ZtmPollerService } from './ztm-poller.service';
 
 @Injectable()
 export class MapService {
-  // In a real implementation, this would inject:
-  // - VehicleCacheService (Redis)
-  // - Database repositories
-  // - Provider registry
+  private readonly logger = new Logger(MapService.name);
+  
+  constructor(
+    private readonly ztmPollerService: ZtmPollerService,
+  ) {}
 
   /**
    * Get entities within a bounding box
    */
   async getEntitiesInBoundingBox(query: BoundingBoxSearchDto): Promise<MapResponseDto> {
-    // TODO: Implement actual data fetching from Redis/DB
-    // This is a placeholder implementation
-    
-    return MapResponseDto.create([], {
-      boundingBox: query.boundingBox,
-    });
+    try {
+      // Fetch ZTM vehicles (buses + trams)
+      const ztmVehicles = await this.ztmPollerService.fetchAll();
+      
+      // TODO: Filter by bounding box
+      // TODO: Add GBFS vehicles from cache/DB
+      
+      this.logger.debug(`📍 Returning ${ztmVehicles.length} vehicles in bounding box`);
+      console.log(`[MapService] Fetched ${ztmVehicles.length} ZTM vehicles`);
+      
+      return MapResponseDto.create(ztmVehicles, {
+        boundingBox: query.boundingBox,
+      });
+    } catch (error) {
+      this.logger.error('Error fetching entities:', error);
+      return MapResponseDto.create([], {
+        boundingBox: query.boundingBox,
+      });
+    }
   }
 
   /**

@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.turbo
+.vscode
+infrastructure/otp/data/graph.obj
+infrastructure/otp/data/*.pbf
+infrastructure/otp/data/*.zip
+infrastructure/postgres_data
+infrastructure/redis_data
+infrastructure/pgadmin_data
+infrastructure/gtfs_data
+coverage
+*.log
+apps/**/dist
+libs/**/dist

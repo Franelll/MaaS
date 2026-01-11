@@ -1,0 +1,137 @@
+{
+  "$schema": "https://raw.githubusercontent.com/opentripplanner/OpenTripPlanner/dev-2.x/doc-templates/router-config.schema.json",
+  "server": {
+    "apiProcessingTimeout": "PT30S",
+    "traceParameters": [
+      {
+        "httpRequestHeader": "X-Correlation-ID",
+        "httpResponseHeader": "X-Correlation-ID",
+        "logKey": "correlationId",
+        "generateIdIfMissing": true
+      }
+    ]
+  },
+  "routingDefaults": {
+    "numItineraries": 5,
+    "transferPenalty": 300,
+    "walkReluctance": 3.0,
+    "waitReluctance": 1.0,
+    "walkSpeed": 1.33,
+    "bikeSpeed": 5.0,
+    "bikeWalkingSpeed": 1.33,
+    "bikeSwitchTime": 60,
+    "bikeSwitchCost": 60,
+    "carDropoffTime": 120,
+    "stairsReluctance": 2.0,
+    "turnReluctance": 1.0,
+    "elevatorBoardCost": 90,
+    "elevatorBoardTime": 90,
+    "elevatorHopCost": 20,
+    "elevatorHopTime": 20,
+    "maxDirectStreetDuration": "PT30M",
+    "itineraryFilters": {
+      "transitGeneralizedCostLimit": {
+        "costLimitFunction": "15m + 1.5 x",
+        "intervalRelaxFactor": 0.4
+      },
+      "nonTransitGeneralizedCostLimit": "1h + 2.0 x",
+      "bikeRentalDistanceRatio": 0.3,
+      "accessibilityScore": true,
+      "minBikeParkingDistance": 200
+    }
+  },
+  "transit": {
+    "maxNumberOfTransfers": 4,
+    "dynamicSearchWindow": {
+      "minTripTimeCoefficient": 0.5,
+      "minWindow": "PT30M",
+      "maxWindow": "PT3H"
+    },
+    "raptor": {
+      "searchThreadPoolSize": 4
+    }
+  },
+  "vehicleRental": {
+    "pickupTime": 60,
+    "pickupCost": 120,
+    "dropoffTime": 30,
+    "dropoffCost": 30,
+    "useAvailabilityInformation": true,
+    "allowArrivingInRentedVehicleAtDestination": false,
+    "allowKeepingRentedVehicleAtDestination": false
+  },
+  "updaters": [
+    {
+      "type": "vehicle-rental",
+      "network": "bolt-scooters",
+      "sourceType": "gbfs",
+      "url": "https://mds.bolt.eu/gbfs/2/422/gbfs",
+      "frequencySec": 30,
+      "allowKeepingRentedVehicleAtDestination": false,
+      "headers": {
+        "User-Agent": "MaaS-Platform/1.0"
+      }
+    },
+    {
+      "type": "vehicle-rental",
+      "network": "tier-scooters",
+      "sourceType": "gbfs",
+      "url": "https://platform.tier-services.io/v2/gbfs/warsaw/gbfs.json",
+      "frequencySec": 30,
+      "allowKeepingRentedVehicleAtDestination": false
+    },
+    {
+      "type": "vehicle-rental",
+      "network": "lime-scooters",
+      "sourceType": "gbfs",
+      "url": "https://data.lime.bike/api/partners/v2/gbfs/warsaw/gbfs.json",
+      "frequencySec": 30,
+      "allowKeepingRentedVehicleAtDestination": false
+    },
+    {
+      "type": "vehicle-rental",
+      "network": "veturilo-bikes",
+      "sourceType": "gbfs",
+      "url": "https://gbfs.nextbike.net/maps/gbfs/v2/nextbike_pw/gbfs.json",
+      "frequencySec": 60,
+      "allowKeepingRentedVehicleAtDestination": false
+    },
+    {
+      "type": "real-time-alerts",
+      "frequencySec": 60,
+      "url": "https://www.ztm.waw.pl/gtfs-rt/alerts.pb",
+      "feedId": "ztm"
+    }
+  ],
+  "vectorTiles": {
+    "layers": [
+      {
+        "name": "stops",
+        "type": "Stop",
+        "mapper": "Digitransit",
+        "maxZoom": 20,
+        "minZoom": 14,
+        "cacheMaxSeconds": 300
+      },
+      {
+        "name": "rentalVehicles",
+        "type": "VehicleRental",
+        "mapper": "Digitransit",
+        "maxZoom": 20,
+        "minZoom": 14,
+        "cacheMaxSeconds": 30
+      },
+      {
+        "name": "stations",
+        "type": "VehicleRentalStation",
+        "mapper": "Digitransit",
+        "maxZoom": 20,
+        "minZoom": 14,
+        "cacheMaxSeconds": 60
+      }
+    ]
+  },
+  "transmodelApi": {
+    "hideFeedId": true
+  }
+}

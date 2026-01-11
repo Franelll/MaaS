@@ -26,6 +26,8 @@
     "paths": {
       "@maas/common": ["libs/common/src"],
       "@maas/common/*": ["libs/common/src/*"],
+      "@maas/ztm": ["libs/ztm/src"],
+      "@maas/ztm/*": ["libs/ztm/src/*"],
       "@maas/gtfs": ["libs/gtfs/src"],
       "@maas/gtfs/*": ["libs/gtfs/src/*"],
       "@maas/gbfs": ["libs/gbfs/src"],

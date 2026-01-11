@@ -1,0 +1,215 @@
+# ============================================================================
+# MaaS Platform - OpenTripPlanner Deployment
+# Kubernetes deployment configuration for OTP v2.5
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otp
+  namespace: maas
+  labels:
+    app: otp
+    component: routing
+    version: "2.5.0"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: otp
+  template:
+    metadata:
+      labels:
+        app: otp
+        component: routing
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/otp/actuators/prometheus"
+    spec:
+      containers:
+        - name: otp
+          image: maas/otp:2.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: JAVA_OPTS
+              value: "-Xmx4G -Xms2G -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+            - name: OTP_DATA_DIR
+              value: "/opt/otp/data"
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "1000m"
+            limits:
+              memory: "6Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: otp-data
+              mountPath: /opt/otp/data
+              readOnly: true
+            - name: otp-config
+              mountPath: /opt/otp/router-config.json
+              subPath: router-config.json
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /otp/actuators/health
+              port: 8080
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /otp/actuators/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /otp/actuators/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+      volumes:
+        - name: otp-data
+          persistentVolumeClaim:
+            claimName: otp-graph-pvc
+        - name: otp-config
+          configMap:
+            name: otp-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - otp
+                topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otp
+  namespace: maas
+  labels:
+    app: otp
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: otp
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: otp-graph-pvc
+  namespace: maas
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otp-config
+  namespace: maas
+data:
+  router-config.json: |
+    {
+      "server": {
+        "apiProcessingTimeout": "PT30S"
+      },
+      "routingDefaults": {
+        "numItineraries": 5,
+        "transferPenalty": 300,
+        "walkReluctance": 3.0,
+        "waitReluctance": 1.0,
+        "walkSpeed": 1.33,
+        "bikeSpeed": 5.0
+      },
+      "vehicleRental": {
+        "pickupTime": 60,
+        "pickupCost": 120,
+        "dropoffTime": 30,
+        "dropoffCost": 30,
+        "useAvailabilityInformation": true
+      },
+      "updaters": [
+        {
+          "type": "vehicle-rental",
+          "network": "bolt-scooters",
+          "sourceType": "gbfs",
+          "url": "https://mds.bolt.eu/gbfs/2/422/gbfs",
+          "frequencySec": 30
+        },
+        {
+          "type": "vehicle-rental",
+          "network": "tier-scooters",
+          "sourceType": "gbfs",
+          "url": "https://platform.tier-services.io/v2/gbfs/warsaw/gbfs.json",
+          "frequencySec": 30
+        },
+        {
+          "type": "vehicle-rental",
+          "network": "veturilo-bikes",
+          "sourceType": "gbfs",
+          "url": "https://gbfs.nextbike.net/maps/gbfs/v2/nextbike_pw/gbfs.json",
+          "frequencySec": 60
+        }
+      ]
+    }
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: otp-hpa
+  namespace: maas
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: otp
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

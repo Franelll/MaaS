@@ -1,0 +1,10 @@
+# Placeholder for OTP data directory
+# Download OSM and GTFS files here
+
+# Required files:
+# - mazowieckie-latest.osm.pbf (OSM map data)
+# - gtfs-warsaw.zip (GTFS transit data)
+
+# Run the download script to fetch these files:
+# ./download-data.sh (Linux/Mac)
+# powershell -ExecutionPolicy Bypass -File download-data.ps1 (Windows)

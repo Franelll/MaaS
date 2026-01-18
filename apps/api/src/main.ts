@@ -25,6 +25,9 @@ async function bootstrap() {
       'http://localhost:8080',
       'http://localhost:3000',
       'http://127.0.0.1:8080',
+      // Local network origins (useful when opening from another device/IP)
+      'http://172.26.154.145:8080',
+      'http://10.137.171.245:8080',
       ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : []),
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',

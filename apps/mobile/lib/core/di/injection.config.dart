@@ -11,6 +11,7 @@ import 'package:dio/dio.dart';
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
 
+import '../../features/home/data/datasources/geocoding_remote_datasource.dart';
 import '../../features/map/data/datasources/map_remote_datasource.dart';
 import '../../features/map/data/repositories/map_repository_impl.dart';
 import '../../features/map/domain/repositories/map_repository.dart';
@@ -36,6 +37,9 @@ extension GetItInjectableX on GetIt {
     );
     gh.lazySingleton<MapRemoteDataSource>(
       () => MapRemoteDataSourceImpl(gh<Dio>()),
+    );
+    gh.lazySingleton<GeocodingRemoteDataSource>(
+      () => GeocodingRemoteDataSourceImpl(gh<Dio>()),
     );
     
     // Repositories

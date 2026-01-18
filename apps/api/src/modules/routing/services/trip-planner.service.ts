@@ -5,6 +5,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { OtpGraphqlClient } from './otp-graphql.client';
+import { OsrmService } from './osrm.service';
 import {
   TripPlanRequestDto,
   PlannedRouteDto,
@@ -28,7 +29,10 @@ export class TripPlannerService {
 
   // Mode icon mapping for summary generation
 
-  constructor(private readonly otpClient: OtpGraphqlClient) {
+  constructor(
+    private readonly otpClient: OtpGraphqlClient,
+    private readonly osrmService: OsrmService,
+  ) {
     // Check OTP availability on startup
     this.checkOtpAvailability();
   }
@@ -48,7 +52,7 @@ export class TripPlannerService {
 
     // Fallback to mock if OTP not available
     if (!this.otpAvailable) {
-      this.logger.log('Using mock routing (OTP unavailable)');
+      this.logger.log('Using mock routing with OSRM geometry (OTP unavailable)');
       return this.generateMockRoutes(request);
     }
 
@@ -62,7 +66,7 @@ export class TripPlannerService {
     } catch (error) {
       this.logger.error('Failed to get trip plan from OTP', error);
       // Fall back to mock routing instead of throwing
-      this.logger.warn('Falling back to mock routing');
+      this.logger.warn('Falling back to mock routing with OSRM');
       return this.generateMockRoutes(request);
     }
 
@@ -127,22 +131,42 @@ export class TripPlannerService {
 
   /**
    * Build transport modes array based on preferences
+   * Configures OTP to search multimodal routes:
+   * - WALK + TRANSIT (public transport)
+   * - WALK + BICYCLE_RENT (bike sharing like Veturilo)
+   * - WALK + SCOOTER_RENT (e-scooters like Bolt, Tier, Lime)
+   * - Combined: WALK → SCOOTER → TRANSIT → WALK
    */
   private buildTransportModes(preferences: TripPlanRequestDto['preferences']): OtpTransportMode[] {
-    const modes: OtpTransportMode[] = [
-      { mode: 'WALK' },
-      { mode: 'TRANSIT' }, // Includes all public transport
-    ];
+    const modes: OtpTransportMode[] = [];
 
-    // Add bike rental if allowed
+    // Always include walking as base mode
+    modes.push({ mode: 'WALK' });
+
+    // Include all public transit modes (bus, tram, metro, rail)
+    // TRANSIT is a shorthand that includes: BUS, TRAM, SUBWAY, RAIL, FERRY
+    modes.push({ mode: 'TRANSIT' });
+
+    // Add bike rental if allowed (e.g., Veturilo, Nextbike)
+    // This enables routes like: Walk → Rent bike → Ride → Return bike → Walk
     if (preferences?.allowBikes !== false) {
-      modes.push({ mode: 'BICYCLE', qualifier: 'RENT' });
+      modes.push({ 
+        mode: 'BICYCLE', 
+        qualifier: 'RENT',
+      });
     }
 
-    // Add scooter rental if allowed
+    // Add scooter rental if allowed (e.g., Bolt, Tier, Lime)
+    // This enables routes like: Walk → Rent scooter → Ride to stop → Transit → Walk
     if (preferences?.allowScooters !== false) {
-      modes.push({ mode: 'SCOOTER', qualifier: 'RENT' });
+      modes.push({ 
+        mode: 'SCOOTER', 
+        qualifier: 'RENT',
+      });
     }
+
+    // Log the configured modes for debugging
+    this.logger.debug(`Transport modes configured: ${JSON.stringify(modes)}`);
 
     return modes;
   }
@@ -490,13 +514,24 @@ export class TripPlannerService {
 
   /**
    * Generate mock routes when OTP is unavailable
-   * Creates realistic looking routes for testing
+   * Uses OSRM for real street geometry
    */
-  private generateMockRoutes(request: TripPlanRequestDto): PlannedRouteDto[] {
+  private async generateMockRoutes(request: TripPlanRequestDto): Promise<PlannedRouteDto[]> {
     const { origin, destination } = request;
     const now = new Date();
+
+    this.logger.log(`generateMockRoutes start: origin=${origin.lat},${origin.lng} dest=${destination.lat},${destination.lng}`);
     
-    // Calculate rough distance between points (Haversine approximation)
+    // Get real routes from OSRM
+    const [walkingRoute, drivingRoute, cyclingRoute] = await Promise.all([
+      this.osrmService.getWalkingRoute(origin, destination),
+      this.osrmService.getDrivingRoute(origin, destination),
+      this.osrmService.getCyclingRoute(origin, destination),
+    ]);
+
+    this.logger.log(`generateMockRoutes: OSRM initial routes fetched: walking=${!!walkingRoute} driving=${!!drivingRoute} cycling=${!!cyclingRoute}`);
+
+    // Calculate fallback distance if OSRM fails
     const R = 6371000; // Earth radius in meters
     const dLat = (destination.lat - origin.lat) * Math.PI / 180;
     const dLng = (destination.lng - origin.lng) * Math.PI / 180;
@@ -505,30 +540,41 @@ export class TripPlannerService {
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
               Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng/2) * Math.sin(dLng/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c;
+    const fallbackDistance = R * c;
 
-    // Generate simple polyline (just straight line for mock)
-    const polyline = this.generateSimplePolyline(origin, destination);
+    // Generate fallback polyline if OSRM fails
+    const fallbackPolyline = this.generateSimplePolyline(origin, destination);
 
-    // Generate 3 mock routes with different modes
     const routes: PlannedRouteDto[] = [];
 
-    // Route 1: Transit (Bus/Tram)
-    const transitDuration = Math.round(distance / 10) + 300; // ~36 km/h avg + 5 min walk
+    // Use OSRM data or fallbacks
+    const walkDistance = walkingRoute?.distance ?? fallbackDistance;
+    const walkDuration = walkingRoute?.duration ?? Math.round(fallbackDistance / 1.4);
+    const walkPolyline = walkingRoute?.geometry ?? fallbackPolyline;
+
+    const driveDistance = drivingRoute?.distance ?? fallbackDistance;
+    const driveDuration = drivingRoute?.duration ?? Math.round(fallbackDistance / 10);
+    const drivePolyline = drivingRoute?.geometry ?? fallbackPolyline;
+
+    const cycleDistance = cyclingRoute?.distance ?? fallbackDistance;
+    const cycleDuration = cyclingRoute?.duration ?? Math.round(fallbackDistance / 4);
+    const cyclePolyline = cyclingRoute?.geometry ?? fallbackPolyline;
+
+    // Route 1: Transit (Bus/Tram) - uses driving geometry as approximation
+    const transitDuration = driveDuration + 300; // Add 5 min for walking
+    const transitWalkDistance = 400;
     
-    // Generate polylines for each segment
-    const walkToStop = this.generateSimplePolyline(
-      { lat: origin.lat, lng: origin.lng },
-      { lat: origin.lat + 0.001, lng: origin.lng + 0.001 }
-    );
-    const busRide = this.generateSimplePolyline(
-      { lat: origin.lat + 0.001, lng: origin.lng + 0.001 },
-      { lat: destination.lat - 0.001, lng: destination.lng - 0.001 }
-    );
-    const walkFromStop = this.generateSimplePolyline(
-      { lat: destination.lat - 0.001, lng: destination.lng - 0.001 },
-      { lat: destination.lat, lng: destination.lng }
-    );
+    // Generate walking portions using OSRM or simple lines
+    const stopLat1 = origin.lat + (destination.lat - origin.lat) * 0.05;
+    const stopLng1 = origin.lng + (destination.lng - origin.lng) * 0.05;
+    const stopLat2 = origin.lat + (destination.lat - origin.lat) * 0.95;
+    const stopLng2 = origin.lng + (destination.lng - origin.lng) * 0.95;
+    
+    const [walkToStopRoute, walkFromStopRoute, busRoute] = await Promise.all([
+      this.osrmService.getWalkingRoute(origin, { lat: stopLat1, lng: stopLng1 }),
+      this.osrmService.getWalkingRoute({ lat: stopLat2, lng: stopLng2 }, destination),
+      this.osrmService.getDrivingRoute({ lat: stopLat1, lng: stopLng1 }, { lat: stopLat2, lng: stopLng2 }),
+    ]);
     
     routes.push({
       id: 'route-1',
@@ -536,7 +582,7 @@ export class TripPlannerService {
       duration: transitDuration,
       walkTime: 300,
       waitTime: 180,
-      walkDistance: 400,
+      walkDistance: transitWalkDistance,
       transfers: 0,
       estimatedCost: 4.40,
       departureTime: now.toISOString(),
@@ -546,109 +592,104 @@ export class TripPlannerService {
         {
           type: SegmentType.WALK,
           from: { name: 'Start', location: { lat: origin.lat, lng: origin.lng } },
-          to: { name: 'Przystanek', location: { lat: origin.lat + 0.001, lng: origin.lng + 0.001 } },
+          to: { name: 'Przystanek', location: { lat: stopLat1, lng: stopLng1 } },
           duration: 150,
-          distance: 200,
-          polyline: walkToStop,
+          distance: walkToStopRoute?.distance ?? 200,
+          polyline: walkToStopRoute?.geometry ?? this.generateSimplePolyline(origin, { lat: stopLat1, lng: stopLng1 }),
           cost: 0,
         },
         {
           type: SegmentType.BUS,
-          from: { name: 'Przystanek A', location: { lat: origin.lat + 0.001, lng: origin.lng + 0.001 } },
-          to: { name: 'Przystanek B', location: { lat: destination.lat - 0.001, lng: destination.lng - 0.001 } },
-          duration: transitDuration - 300,
-          distance: distance - 400,
-          polyline: busRide,
+          from: { name: 'Przystanek A', location: { lat: stopLat1, lng: stopLng1 } },
+          to: { name: 'Przystanek B', location: { lat: stopLat2, lng: stopLng2 } },
+          duration: driveDuration,
+          distance: busRoute?.distance ?? driveDistance * 0.9,
+          polyline: busRoute?.geometry ?? drivePolyline,
           cost: 4.40,
           line: { name: '180', longName: 'Centrum - Żoliborz', color: '#CC0000', agency: 'ZTM Warszawa' },
           departureTime: new Date(now.getTime() + 180000).toISOString(),
           arrivalTime: new Date(now.getTime() + (transitDuration - 150) * 1000).toISOString(),
-          numStops: Math.max(3, Math.round(distance / 500)),
+          numStops: Math.max(3, Math.round(driveDistance / 500)),
         },
         {
           type: SegmentType.WALK,
-          from: { name: 'Przystanek', location: { lat: destination.lat - 0.001, lng: destination.lng - 0.001 } },
+          from: { name: 'Przystanek', location: { lat: stopLat2, lng: stopLng2 } },
           to: { name: 'Cel', location: { lat: destination.lat, lng: destination.lng } },
           duration: 150,
-          distance: 200,
-          polyline: walkFromStop,
+          distance: walkFromStopRoute?.distance ?? 200,
+          polyline: walkFromStopRoute?.geometry ?? this.generateSimplePolyline({ lat: stopLat2, lng: stopLng2 }, destination),
           cost: 0,
         },
       ],
     });
 
-    // Route 2: E-Scooter
-    const scooterDuration = Math.round(distance / 5); // ~18 km/h
-    const scooterCost = 3.49 + (scooterDuration / 60) * 0.69;
+    // Route 2: E-Scooter - uses cycling geometry
+    const scooterCost = 3.49 + (cycleDuration / 60) * 0.69;
     
-    // Generate polylines for scooter route
-    const walkToScooter = this.generateSimplePolyline(
-      { lat: origin.lat, lng: origin.lng },
-      { lat: origin.lat + 0.0005, lng: origin.lng + 0.0005 }
-    );
-    const scooterRide = this.generateSimplePolyline(
-      { lat: origin.lat + 0.0005, lng: origin.lng + 0.0005 },
-      { lat: destination.lat - 0.0005, lng: destination.lng - 0.0005 }
-    );
-    const walkFromScooter = this.generateSimplePolyline(
-      { lat: destination.lat - 0.0005, lng: destination.lng - 0.0005 },
-      { lat: destination.lat, lng: destination.lng }
-    );
+    const scooterLat1 = origin.lat + (destination.lat - origin.lat) * 0.02;
+    const scooterLng1 = origin.lng + (destination.lng - origin.lng) * 0.02;
+    const scooterLat2 = origin.lat + (destination.lat - origin.lat) * 0.98;
+    const scooterLng2 = origin.lng + (destination.lng - origin.lng) * 0.98;
+    
+    const [walkToScooterRoute, scooterRideRoute, walkFromScooterRoute] = await Promise.all([
+      this.osrmService.getWalkingRoute(origin, { lat: scooterLat1, lng: scooterLng1 }),
+      this.osrmService.getCyclingRoute({ lat: scooterLat1, lng: scooterLng1 }, { lat: scooterLat2, lng: scooterLng2 }),
+      this.osrmService.getWalkingRoute({ lat: scooterLat2, lng: scooterLng2 }, destination),
+    ]);
     
     routes.push({
       id: 'route-2',
       summary: 'Spacer → Hulajnoga → Spacer',
-      duration: scooterDuration + 180,
+      duration: cycleDuration + 180,
       walkTime: 180,
       waitTime: 0,
       walkDistance: 200,
       transfers: 0,
       estimatedCost: Math.round(scooterCost * 100) / 100,
       departureTime: now.toISOString(),
-      arrivalTime: new Date(now.getTime() + (scooterDuration + 180) * 1000).toISOString(),
+      arrivalTime: new Date(now.getTime() + (cycleDuration + 180) * 1000).toISOString(),
       score: { overall: 75, time: 90, cost: 60, comfort: 75 },
       segments: [
         {
           type: SegmentType.WALK,
           from: { name: 'Start', location: { lat: origin.lat, lng: origin.lng } },
-          to: { name: 'Hulajnoga', location: { lat: origin.lat + 0.0005, lng: origin.lng + 0.0005 } },
+          to: { name: 'Hulajnoga', location: { lat: scooterLat1, lng: scooterLng1 } },
           duration: 90,
-          distance: 100,
-          polyline: walkToScooter,
+          distance: walkToScooterRoute?.distance ?? 100,
+          polyline: walkToScooterRoute?.geometry ?? this.generateSimplePolyline(origin, { lat: scooterLat1, lng: scooterLng1 }),
           cost: 0,
         },
         {
           type: SegmentType.SCOOTER,
-          from: { name: 'Hulajnoga', location: { lat: origin.lat + 0.0005, lng: origin.lng + 0.0005 } },
-          to: { name: 'Parking', location: { lat: destination.lat - 0.0005, lng: destination.lng - 0.0005 } },
-          duration: scooterDuration,
-          distance: distance - 200,
-          polyline: scooterRide,
+          from: { name: 'Hulajnoga', location: { lat: scooterLat1, lng: scooterLng1 } },
+          to: { name: 'Parking', location: { lat: scooterLat2, lng: scooterLng2 } },
+          duration: scooterRideRoute?.duration ?? cycleDuration,
+          distance: scooterRideRoute?.distance ?? cycleDistance - 200,
+          polyline: scooterRideRoute?.geometry ?? cyclePolyline,
           cost: scooterCost,
           provider: 'bolt-scooters',
           isRented: true,
         },
         {
           type: SegmentType.WALK,
-          from: { name: 'Parking', location: { lat: destination.lat - 0.0005, lng: destination.lng - 0.0005 } },
+          from: { name: 'Parking', location: { lat: scooterLat2, lng: scooterLng2 } },
           to: { name: 'Cel', location: { lat: destination.lat, lng: destination.lng } },
           duration: 90,
-          distance: 100,
-          polyline: walkFromScooter,
+          distance: walkFromScooterRoute?.distance ?? 100,
+          polyline: walkFromScooterRoute?.geometry ?? this.generateSimplePolyline({ lat: scooterLat2, lng: scooterLng2 }, destination),
           cost: 0,
         },
       ],
     });
 
-    // Route 3: Walking only
-    const walkDuration = Math.round(distance / 1.4); // ~5 km/h
+    // Route 3: Walking only - uses real walking geometry
     routes.push({
       id: 'route-3',
       summary: 'Spacer',
       duration: walkDuration,
       walkTime: walkDuration,
       waitTime: 0,
-      walkDistance: distance,
+      walkDistance: walkDistance,
       transfers: 0,
       estimatedCost: 0,
       departureTime: now.toISOString(),
@@ -660,14 +701,14 @@ export class TripPlannerService {
           from: { name: 'Start', location: { lat: origin.lat, lng: origin.lng } },
           to: { name: 'Cel', location: { lat: destination.lat, lng: destination.lng } },
           duration: walkDuration,
-          distance: distance,
-          polyline: polyline,
+          distance: walkDistance,
+          polyline: walkPolyline,
           cost: 0,
         },
       ],
     });
 
-    this.logger.log(`Generated ${routes.length} mock routes`);
+    this.logger.log(`Generated ${routes.length} mock routes with OSRM geometry`);
     return routes;
   }
 

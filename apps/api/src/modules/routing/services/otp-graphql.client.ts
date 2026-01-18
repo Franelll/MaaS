@@ -37,13 +37,18 @@ export class OtpGraphqlClient implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     this.logger.log(`OTP GraphQL Client initialized with URL: ${this.otpUrl}`);
     
-    // Check OTP connectivity on startup
-    const isHealthy = await this.healthCheck();
-    if (isHealthy) {
-      this.logger.log('✅ OTP connection successful');
-    } else {
-      this.logger.warn('⚠️ OTP connection failed - routing will not work');
-    }
+    // Check OTP connectivity on startup (non-blocking)
+    this.healthCheck()
+      .then((isHealthy) => {
+        if (isHealthy) {
+          this.logger.log('✅ OTP connection successful');
+        } else {
+          this.logger.warn('⚠️ OTP connection failed - routing will not work');
+        }
+      })
+      .catch((error) => {
+        this.logger.warn('⚠️ OTP health check failed on startup', error);
+      });
   }
 
   /**
@@ -52,8 +57,13 @@ export class OtpGraphqlClient implements OnModuleInit {
   async query<T>(
     query: string,
     variables: Record<string, unknown> = {},
+    options?: { timeoutMs?: number; retryCount?: number; retryDelayMs?: number },
   ): Promise<T> {
     this.logger.debug(`Executing OTP query with variables: ${JSON.stringify(variables)}`);
+
+    const timeoutMs = options?.timeoutMs ?? this.defaultTimeout;
+    const retryCount = options?.retryCount ?? 2;
+    const retryDelayMs = options?.retryDelayMs ?? 1000;
 
     try {
       const response = await firstValueFrom<AxiosResponse<T>>(
@@ -72,8 +82,8 @@ export class OtpGraphqlClient implements OnModuleInit {
             },
           )
           .pipe(
-            timeout(this.defaultTimeout),
-            retry({ count: 2, delay: 1000 }),
+            timeout(timeoutMs),
+            retry({ count: retryCount, delay: retryDelayMs }),
             catchError((error: AxiosError) => {
               this.logger.error(`OTP query failed: ${error.message}`);
               throw error;
@@ -115,6 +125,8 @@ export class OtpGraphqlClient implements OnModuleInit {
     try {
       const response = await this.query<{ data: { serviceTimeRange: { start: number; end: number } } }>(
         HEALTH_CHECK_QUERY,
+        {},
+        { timeoutMs: 2000, retryCount: 0 },
       );
       return !!response.data?.serviceTimeRange;
     } catch (error) {

@@ -10,6 +10,7 @@ import { RoutingController } from './routing.controller';
 import { TripPlannerService } from './services/trip-planner.service';
 import { RouteScoringService } from './services/route-scoring.service';
 import { OtpGraphqlClient } from './services/otp-graphql.client';
+import { OsrmService } from './services/osrm.service';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { OtpGraphqlClient } from './services/otp-graphql.client';
     TripPlannerService,
     RouteScoringService,
     OtpGraphqlClient,
+    OsrmService,
   ],
   exports: [TripPlannerService],
 })

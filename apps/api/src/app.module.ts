@@ -10,6 +10,7 @@ import { HealthModule } from './modules/health/health.module';
 import { MapModule } from './modules/map/map.module';
 import { ProvidersModule } from './modules/providers/providers.module';
 import { RoutingModule } from './modules/routing/routing.module';
+import { GeocodingModule } from './modules/geocoding/geocoding.module';
 
 @Module({
   imports: [
@@ -58,7 +59,8 @@ import { RoutingModule } from './modules/routing/routing.module';
     HealthModule,
     MapModule,
     ProvidersModule,
-    RoutingModule,  // Phase 2: Multimodal Routing
+    RoutingModule,    // Phase 2: Multimodal Routing
+    GeocodingModule,  // Phase 2: Address Search
   ],
 })
 export class AppModule {}

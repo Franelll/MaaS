@@ -418,8 +418,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _handleDestinationSelected(BuildContext context, LatLng location, String name) {
+    debugPrint('[HomeScreen] 📍 Destination selected: $name at ${location.latitude}, ${location.longitude}');
+    
     final destination = GeoLocation(lat: location.latitude, lng: location.longitude);
     context.read<RoutingBloc>().add(UpdateDestination(destination, destinationName: name));
+    
+    // Center map on selected destination
+    _mapController.move(location, 15);
     
     // Use current map center as origin if not set
     final routingState = context.read<RoutingBloc>().state;
